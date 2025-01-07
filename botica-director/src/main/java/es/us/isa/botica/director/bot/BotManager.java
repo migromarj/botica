@@ -83,10 +83,11 @@ public class BotManager {
 
   private void startHeartbeatScheduler() {
     this.executorService.scheduleAtFixedRate(
-        () ->
-            this.getBots().stream()
-                .filter(BotManager::isBotReady)
-                .forEach(bot -> this.server.sendPacket(new HeartbeatPacket(), bot.getId())),
+        () -> {
+          this.getBots().stream()
+              .filter(BotManager::isBotReady)
+              .forEach(bot -> this.server.sendPacket(new HeartbeatPacket(), bot.getId()));
+        },
         HEARTBEAT_RATE_SECONDS,
         HEARTBEAT_RATE_SECONDS,
         TimeUnit.SECONDS);

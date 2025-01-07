@@ -8,12 +8,17 @@ import es.us.isa.botica.configuration.MainConfiguration;
 import es.us.isa.botica.configuration.broker.RabbitMqConfiguration;
 import es.us.isa.botica.protocol.Packet;
 import es.us.isa.botica.protocol.PacketConverter;
+import es.us.isa.botica.protocol.QueryHandler;
+import es.us.isa.botica.protocol.RequestPacket;
+import es.us.isa.botica.protocol.ResponsePacket;
 import es.us.isa.botica.protocol.client.BotPacket;
 import es.us.isa.botica.rabbitmq.RabbitMqClient;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,15 +33,18 @@ public class RabbitMqBoticaServer implements BoticaServer {
 
   private final MainConfiguration mainConfiguration;
   private final PacketConverter packetConverter;
+  private final QueryHandler queryHandler;
 
   private final RabbitMqClient rabbitClient;
   private final Map<Class<?>, List<PacketListener<?>>> packetListeners = new HashMap<>();
 
   public RabbitMqBoticaServer(
       MainConfiguration mainConfiguration,
-      PacketConverter packetConverter) {
+      PacketConverter packetConverter,
+      ScheduledExecutorService executorService) {
     this.mainConfiguration = mainConfiguration;
     this.packetConverter = packetConverter;
+    this.queryHandler = new QueryHandler(executorService);
     this.rabbitClient = new RabbitMqClient();
   }
 
@@ -84,7 +92,13 @@ public class RabbitMqBoticaServer implements BoticaServer {
   @Override
   public <P extends Packet> void registerPacketListener(
       Class<P> packetClass, PacketListener<P> listener) {
-    this.packetListeners.computeIfAbsent(packetClass, c -> new ArrayList<>()).add(listener);
+    List<PacketListener<?>> listeners =
+        this.packetListeners.computeIfAbsent(packetClass, c -> new ArrayList<>());
+    if (listeners.isEmpty() && ResponsePacket.class.isAssignableFrom(packetClass)) {
+      listeners.add((sourceBotId, response) -> this.queryHandler.acceptResponse(
+          (ResponsePacket<?>) response));
+    }
+    listeners.add(listener);
   }
 
   @Override
@@ -93,6 +107,38 @@ public class RabbitMqBoticaServer implements BoticaServer {
         PROTOCOL_EXCHANGE,
         String.format(BOT_PROTOCOL_IN_FORMAT, botId),
         packetConverter.serialize(packet));
+  }
+
+  @Override
+  public <ResponsePacketT extends ResponsePacket<?>> void sendPacket(
+      RequestPacket<ResponsePacketT> packet,
+      String botId,
+      PacketListener<ResponsePacketT> callback,
+      Runnable timeoutCallback) {
+    this.sendPacket(packet, botId, callback, timeoutCallback, 3, TimeUnit.SECONDS);
+  }
+
+  @Override
+  public <ResponsePacketT extends ResponsePacket<?>> void sendPacket(
+      RequestPacket<ResponsePacketT> packet,
+      String botId,
+      PacketListener<ResponsePacketT> callback,
+      Runnable timeoutCallback,
+      long timeout,
+      TimeUnit timeoutUnit) {
+    if (!this.packetListeners.containsKey(packet.getResponsePacketClass())) {
+      this.registerPacketListener(
+          packet.getResponsePacketClass(),
+          (sourceBotId, response) -> this.queryHandler.acceptResponse(response));
+    }
+
+    this.queryHandler.registerQuery(
+        packet,
+        response -> callback.onPacketReceived(botId, response),
+        timeoutCallback,
+        timeout,
+        timeoutUnit);
+    this.sendPacket(packet, botId);
   }
 
   @Override

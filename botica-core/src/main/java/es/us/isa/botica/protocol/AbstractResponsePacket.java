@@ -1,21 +1,15 @@
 package es.us.isa.botica.protocol;
 
-public abstract class AbstractRequestPacket<ResponsePacketT extends Packet>
-    implements RequestPacket<ResponsePacketT> {
-  protected String requestId;
+public abstract class AbstractResponsePacket<RequestPacketT extends Packet>
+    implements ResponsePacket<RequestPacketT> {
+  protected final String requestId;
 
-  public AbstractRequestPacket() {}
-
-  public AbstractRequestPacket(String requestId) {
+  public AbstractResponsePacket(String requestId) {
     this.requestId = requestId;
   }
 
   @Override
   public String getRequestId() {
     return requestId;
-  }
-
-  public void setRequestId(String requestId) {
-    this.requestId = requestId;
   }
 }

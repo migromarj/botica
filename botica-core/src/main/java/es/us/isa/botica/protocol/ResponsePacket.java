@@ -1,5 +1,5 @@
 package es.us.isa.botica.protocol;
 
-public interface RequestPacket<ResponsePacketT extends Packet> extends Packet {
+public interface ResponsePacket<RequestPacketT extends Packet> extends Packet {
   String getRequestId();
 }
